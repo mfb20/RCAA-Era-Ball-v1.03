@@ -21,14 +21,74 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout v1.03
         uses: actions/checkout@v4
+
+      - name: Assemble v1.03 from pinned v1.01 base
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/mfb20/RCAA-Era-Ball-v1.01.git /tmp/base
+          cd /tmp/base
+          git fetch --depth 1 origin 717b3ea6cab93e3a768d7b43dd6d307c844d274c
+          git checkout 717b3ea6cab93e3a768d7b43dd6d307c844d274c
+          cd "$GITHUB_WORKSPACE"
+
+          rm -rf dist
+          mkdir -p dist
+          cp -R /tmp/base/images dist/images
+          cp -R /tmp/base/scripts dist/scripts
+          cp /tmp/base/.nojekyll dist/.nojekyll
+
+          base64 -d build_v103.py.gz.b64 | gzip -d > /tmp/build_v103.py
+          python3 /tmp/build_v103.py /tmp/base dist
+
+      - name: Expand supplied profile-art sprite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet pillow
+          python3 - <<'PY'
+          from PIL import Image
+          from pathlib import Path
+
+          src = Image.open('assets/v103-sprite.webp').convert('RGB')
+          out = Path('dist/images/players')
+          out.mkdir(parents=True, exist_ok=True)
+          names = [
+              'kuhdd.webp', 'jude.webp', 'aki.webp', 'turbo.webp', 'static1.webp',
+              'static2.webp', 'static3.webp', 'cj-s1-2.webp', 'noir-s2-5.webp', 'rac-s11.webp'
+          ]
+          tile = 96
+          for i, name in enumerate(names):
+              x = (i % 5) * tile
+              y = (i // 5) * tile
+              src.crop((x, y, x + tile, y + tile)).save(out / name, 'WEBP', quality=90, method=6)
+          PY
+
+      - name: Validate v1.03
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check dist/app.js
+          grep -Fq 'season(5, [' dist/app.js
+          grep -Fq 'player("Rac", 93, "QB", 84, "CB")' dist/app.js
+          grep -Fq 'player("B45", 95, "WR", 88, "CB")' dist/app.js
+          grep -q 'NIGHTMARE_EXCLUSIONS' dist/app.js
+          grep -q 'TEAM REROLL' dist/index.html
+          grep -q 'NIGHTMARE' dist/index.html
+          grep -q 'nightmare_legend' dist/app.js
+          test -s dist/images/players/kuhdd.webp
+          test -s dist/images/players/noir-s2-5.webp
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
-      - name: Upload artifact
+
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: "."
+          path: dist
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
